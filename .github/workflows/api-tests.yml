@@ -1,0 +1,74 @@
+# .github/workflows/api-tests.yml
+name: API Testing Framework
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 8 * * *'  # Run daily at 8 AM UTC
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      api:
+        image: node:16
+        ports:
+          - 3000:3000
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install -g newman newman-reporter-html
+
+      - name: Start API server
+        run: |
+          npm start &
+          sleep 5  # Wait for server to start
+
+      - name: Run API Health Check
+        run: |
+          curl -f http://localhost:3000/users || exit 1
+
+      - name: Execute Postman Collection
+        run: |
+          newman run collections/user-api-tests.postman_collection.json \
+            -e environments/dev.postman_environment.json \
+            --reporters cli,html \
+            --reporter-html-export reports/api-test-report.html \
+            --bail
+
+      - name: Upload Test Reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: api-test-reports
+          path: reports/
+
+      - name: Performance Testing
+        run: |
+          newman run collections/user-api-tests.postman_collection.json \
+            -e environments/dev.postman_environment.json \
+            --iteration-count 50 \
+            --reporters cli,json \
+            --reporter-json-export reports/performance-report.json
+
+      - name: Security Tests
+        run: |
+          # Run additional security tests
+          newman run collections/security-tests.postman_collection.json \
+            -e environments/dev.postman_environment.json \
+            --reporters cli
